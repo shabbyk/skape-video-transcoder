@@ -1,0 +1,19 @@
+[package]
+name = "video_transcoder"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A Rust-based video transcoder with folder watcher, subtitle support, and hardware acceleration"
+license = "MIT"
+default-run = "video_transcoder"
+
+[dependencies]
+notify = "4.0.17"
+walkdir = "2.5"
+chrono = "0.4"
+rayon = "1.10"
+
+[dev-dependencies]
+tempfile = "3.10"
+assert_cmd = "2.0"
+predicates = "3.1"
