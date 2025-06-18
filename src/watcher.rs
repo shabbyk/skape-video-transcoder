@@ -32,3 +32,16 @@ pub fn start_watch(watch_dir: &str) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use notify::{RecommendedWatcher};
+    use std::sync::mpsc::channel;
+
+    #[test]
+    fn test_watcher_initialization() {
+        let (tx, _rx) = channel();
+        let watcher: Result<RecommendedWatcher, _> = notify::recommended_watcher(tx);
+        assert!(watcher.is_ok());
+    }
+}

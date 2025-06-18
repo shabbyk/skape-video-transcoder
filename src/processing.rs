@@ -2,7 +2,7 @@ use crate::gpu::detect_gpu_type;
 use crate::ledger::{append_to_ledger, load_ledger};
 use chrono::Local;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -50,34 +50,62 @@ pub fn process_directory(watch_dir: &str) {
 
         match gpu_type {
             "nvenc" => {
-                command.arg("-hwaccel").arg("cuda")
-                    .arg("-i").arg(&temp_input)
-                    .arg("-c:v").arg("h264_nvenc");
+                command
+                    .arg("-hwaccel")
+                    .arg("cuda")
+                    .arg("-i")
+                    .arg(&temp_input)
+                    .arg("-c:v")
+                    .arg("h264_nvenc");
+            }
+            "vaapi" => {
+                command
+                    .arg("-hwaccel")
+                    .arg("vaapi")
+                    .arg("-vaapi_device")
+                    .arg("/dev/dri/renderD128")
+                    .arg("-i")
+                    .arg(&temp_input)
+                    .arg("-vf")
+                    .arg("format=nv12,hwupload")
+                    .arg("-c:v")
+                    .arg("h264_vaapi");
             }
             _ => {
-                command.arg("-hwaccel").arg("vaapi")
-                    .arg("-vaapi_device").arg("/dev/dri/renderD128")
-                    .arg("-i").arg(&temp_input)
-                    .arg("-vf").arg("format=nv12,hwupload")
-                    .arg("-c:v").arg("h264_vaapi");
+                // Fallback for test or headless environments
+                println!("⚠️ GPU not available or unsupported, falling back to CPU encoding.");
+                command
+                    .arg("-i")
+                    .arg(&temp_input)
+                    .arg("-c:v")
+                    .arg("libx264");
             }
         }
 
         if let Some(srt_path) = srt_file {
             println!("💬 Subtitle found: {:?}", srt_path);
-            command.arg("-i").arg(srt_path)
-                .arg("-c:s").arg("mov_text")
-                .arg("-metadata:s:s:0").arg("language=eng");
+            command
+                .arg("-i")
+                .arg(srt_path)
+                .arg("-c:s")
+                .arg("mov_text")
+                .arg("-metadata:s:s:0")
+                .arg("language=eng");
         } else {
             println!("🕳️ No subtitle found for: {:?}", input_file);
         }
 
         command
-            .arg("-c:a").arg("aac")
-            .arg("-b:a").arg("128k")
-            .arg("-profile:v").arg("main")
-            .arg("-level:v").arg("4.0")
-            .arg("-movflags").arg("+faststart")
+            .arg("-c:a")
+            .arg("aac")
+            .arg("-b:a")
+            .arg("128k")
+            .arg("-profile:v")
+            .arg("main")
+            .arg("-level:v")
+            .arg("4.0")
+            .arg("-movflags")
+            .arg("+faststart")
             .arg(&output_file)
             .stdout(Stdio::piped())
             .stderr(File::create(&log_file).expect("Failed to create log"));
@@ -89,6 +117,7 @@ pub fn process_directory(watch_dir: &str) {
                 let duration = start_time.elapsed();
                 println!("🏁 Done {} in {:.2?}", base, duration);
                 let _ = fs::copy(&output_file, &input_file.with_extension("converted.mp4"));
+                println!("Copied to {} from {}", output_file.display(), input_file.with_extension("converted.mp4").display());
                 append_to_ledger(base);
             }
             Err(e) => println!("💥 Failed: {}", e),
@@ -121,4 +150,27 @@ fn collect_files(watch_dir: &str) -> (HashMap<String, PathBuf>, HashMap<String, 
         }
     }
     (mkv_files, srt_files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+
+    #[test]
+    fn test_collect_files_finds_mkv_and_srt() {
+        let tmp_dir = "/tmp/test_videos";
+        let _ = fs::create_dir_all(tmp_dir);
+
+        let mkv_path = format!("{}/video1.mkv", tmp_dir);
+        let srt_path = format!("{}/video1.srt", tmp_dir);
+        File::create(&mkv_path).unwrap();
+        File::create(&srt_path).unwrap();
+
+        let (mkv_map, srt_map) = collect_files(tmp_dir);
+        assert!(mkv_map.contains_key("video1"));
+        assert!(srt_map.contains_key("video1"));
+
+        let _ = fs::remove_dir_all(tmp_dir);
+    }
 }

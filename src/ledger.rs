@@ -17,3 +17,26 @@ pub fn append_to_ledger(entry: &str) {
         let _ = writeln!(file, "{}", entry);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_append_and_load_ledger() {
+        let test_path = "/tmp/test_ledger.txt";
+        let entry = "test_video";
+
+        // Cleanup first
+        let _ = fs::remove_file(test_path);
+        std::env::set_var("LEDGER_PATH", test_path); // if env supported
+
+        append_to_ledger(entry);
+        let ledger = load_ledger();
+        assert!(ledger.contains(entry));
+
+        // Cleanup after
+        let _ = fs::remove_file(test_path);
+    }
+}
