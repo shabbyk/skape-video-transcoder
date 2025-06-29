@@ -3,6 +3,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use video_transcoder::ledger;
+
 /// Helper to create dummy MKV using FFmpeg lavfi testsrc.
 fn create_dummy_mkv(path: &PathBuf) {
     if let Some(parent) = path.parent() {
@@ -86,5 +88,11 @@ fn test_process_directory_creates_mp4() {
         "MP4 was not created at expected location"
     );
 
+    // cleanup
+    let base_name = mkv_path
+    .file_stem()
+    .and_then(|s| s.to_str())
+    .expect("Failed to extract base name");
+    ledger::remove_from_ledger(base_name);
     let _ = std::fs::remove_dir_all(&test_dir);
 }

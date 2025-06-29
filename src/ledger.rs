@@ -17,6 +17,20 @@ pub fn append_to_ledger(entry: &str) {
         let _ = writeln!(file, "{}", entry);
     }
 }
+pub fn remove_from_ledger(entry: &str) {
+    let mut ledger = load_ledger();
+    if ledger.remove(entry) {
+        save_ledger(&ledger);
+    }
+}
+
+pub fn save_ledger(ledger: &HashSet<String>) {
+    if let Ok(mut file) = File::create(LEDGER_PATH) {
+        for entry in ledger {
+            let _ = writeln!(file, "{}", entry);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -35,6 +49,10 @@ mod tests {
         append_to_ledger(entry);
         let ledger = load_ledger();
         assert!(ledger.contains(entry));
+
+        remove_from_ledger(entry);
+        let ledger = load_ledger();
+        assert_eq!(ledger.contains(entry), false);
 
         // Cleanup after
         let _ = fs::remove_file(test_path);
