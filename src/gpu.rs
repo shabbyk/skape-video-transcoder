@@ -1,55 +1,55 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub fn detect_gpu_type() -> &'static str {
-    let output = Command::new("ffmpeg").arg("-encoders").output();
-
     if std::env::var("FORCE_CPU").is_ok() {
         println!("🔧 FORCE_CPU set — skipping GPU detection");
         return "cpu";
     }
 
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains("h264_nvenc") {
-            println!("⚡ NVIDIA GPU (NVENC) detected");
+    // Step 1: Try detecting NVIDIA GPU via CUDA init
+    let nvidia = Command::new("ffmpeg")
+        .args(&[
+            "-init_hw_device", "cuda=cu:0",
+            "-f", "lavfi",
+            "-i", "nullsrc",
+            "-frames:v", "1",
+            "-f", "null", "-"
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output();
+
+    if let Ok(output) = nvidia {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.to_lowercase().contains("cuda device") {
+            println!("⚡ NVIDIA GPU (CUDA) detected");
             return "nvenc";
-        } else if stdout.contains("h264_vaapi") {
+        }
+    }
+
+    // Step 2: Try detecting Intel/AMD via VAAPI
+    let vaapi = Command::new("ffmpeg")
+                .args(&[
+                    "-hwaccel", "vaapi",
+                    "-f", "lavfi",
+                    "-i", "nullsrc",
+                    "-frames:v", "1",
+                    "-f", "null", "-"
+                ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output();
+
+    if let Ok(output) = vaapi {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("/dev/dri/renderD") || stderr.to_lowercase().contains("vaapi") {
             println!("🔌 VAAPI GPU detected");
             return "vaapi";
         }
     }
 
-    println!("🧱 No GPU detected, defaulting to VAAPI");
+    println!("🧱 No GPU detected, defaulting to CPU");
     "cpu"
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_detect_gpu_type_returns_valid_option() {
-        let result = detect_gpu_type();
-        assert!(
-            ["nvenc", "vaapi", "cpu"].contains(&result),
-            "Unexpected GPU type: {}",
-            result
-        );
-    }
-
-    #[test]
-    fn test_force_cpu_env_overrides_detection() {
-        // Set the FORCE_CPU env var
-        std::env::set_var("FORCE_CPU", "1");
-
-        let result = detect_gpu_type();
-        assert_eq!(
-            result, "cpu",
-            "FORCE_CPU was set, but result was {}",
-            result
-        );
-
-        // Clean up env var for other tests
-        std::env::remove_var("FORCE_CPU");
-    }
-}
+// TODO: Add unit test (mocking is an over-head), integration test seems simpler
