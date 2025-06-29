@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 const TEMP_DIR: &str = "/tmp/video_convert_work";
 
@@ -48,15 +48,14 @@ pub fn process_directory(watch_dir: &str) {
         let mut command = Command::new("ffmpeg");
         command.arg("-y");
 
+        // Step 1: Add video input
         match gpu_type {
             "nvenc" => {
                 command
                     .arg("-hwaccel")
                     .arg("cuda")
                     .arg("-i")
-                    .arg(&temp_input)
-                    .arg("-c:v")
-                    .arg("h264_nvenc");
+                    .arg(&temp_input);
             }
             "vaapi" => {
                 command
@@ -65,36 +64,69 @@ pub fn process_directory(watch_dir: &str) {
                     .arg("-vaapi_device")
                     .arg("/dev/dri/renderD128")
                     .arg("-i")
-                    .arg(&temp_input)
+                    .arg(&temp_input);
+            }
+            _ => {
+                println!("⚠️ GPU not available or unsupported, falling back to CPU encoding.");
+                command.arg("-i").arg(&temp_input);
+            }
+        }
+
+        // Step 2: Add subtitle input if available
+        if let Some(srt_path) = srt_file {
+            let temp_srt = Path::new(TEMP_DIR).join(srt_path.file_name().unwrap());
+            match fs::copy(srt_path, &temp_srt) {
+                Ok(_) => println!("💬 Subtitle copied to temp: {:?}", temp_srt),
+                Err(e) => {
+                    println!("❌ Failed to copy subtitle to temp: {}", e);
+                    return;
+                }
+            }
+
+            command.arg("-f").arg("srt").arg("-i").arg(&temp_srt);
+        }
+
+        // Step 3: Mapping and codec configuration
+        if srt_file.is_some() {
+            command
+                .arg("-map")
+                .arg("0:v:0")
+                .arg("-map")
+                .arg("0:a?")
+                .arg("-map")
+                .arg("1:s:0");
+        } else {
+            println!("🕳️ No subtitle found for: {:?}", input_file);
+            command.arg("-map").arg("0:v:0").arg("-map").arg("0:a?");
+        }
+
+        // Step 4: Video codec
+        match gpu_type {
+            "nvenc" => {
+                command.arg("-c:v").arg("h264_nvenc");
+            }
+            "vaapi" => {
+                command
                     .arg("-vf")
                     .arg("format=nv12,hwupload")
                     .arg("-c:v")
                     .arg("h264_vaapi");
             }
             _ => {
-                // Fallback for test or headless environments
-                println!("⚠️ GPU not available or unsupported, falling back to CPU encoding.");
-                command
-                    .arg("-i")
-                    .arg(&temp_input)
-                    .arg("-c:v")
-                    .arg("libx264");
+                command.arg("-c:v").arg("libx264");
             }
         }
 
-        if let Some(srt_path) = srt_file {
-            println!("💬 Subtitle found: {:?}", srt_path);
+        // Subtitle codec if present
+        if srt_file.is_some() {
             command
-                .arg("-i")
-                .arg(srt_path)
                 .arg("-c:s")
                 .arg("mov_text")
                 .arg("-metadata:s:s:0")
                 .arg("language=eng");
-        } else {
-            println!("🕳️ No subtitle found for: {:?}", input_file);
         }
 
+        // Audio and container options
         command
             .arg("-c:a")
             .arg("aac")
@@ -106,21 +138,56 @@ pub fn process_directory(watch_dir: &str) {
             .arg("4.0")
             .arg("-movflags")
             .arg("+faststart")
-            .arg(&output_file)
-            .stdout(Stdio::piped())
-            .stderr(File::create(&log_file).expect("Failed to create log"));
+            .arg(&output_file);
+
+        // Print for debugging
+        println!(
+            "🛠️ Running ffmpeg command: ffmpeg {}",
+            command
+                .get_args()
+                .map(|a| a.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
 
         match command.spawn() {
             Ok(mut child) => {
                 println!("🚀 PID: {}", child.id());
-                let _ = child.wait();
+                match child.wait() {
+                    Ok(status) => {
+                        if !status.success() {
+                            println!("💥 ffmpeg exited with error: {:?}", status);
+                            println!("📄 Check log file: {}", log_file.display());
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        println!("💥 Failed to wait on ffmpeg: {}", e);
+                        return;
+                    }
+                }
+
                 let duration = start_time.elapsed();
                 println!("🏁 Done {} in {:.2?}", base, duration);
-                let _ = fs::copy(&output_file, &input_file.with_extension("converted.mp4"));
-                println!("Copied to {} from {}", output_file.display(), input_file.with_extension("converted.mp4").display());
+
+                match fs::copy(&output_file, &input_file.with_extension("converted.mp4")) {
+                    Ok(_) => {
+                        println!(
+                            "📝 Copied from {} to {}",
+                            output_file.display(),
+                            input_file.with_extension("converted.mp4").display()
+                        );
+                    }
+                    Err(e) => {
+                        println!("⚠️ Failed to copy converted.mp4: {}", e);
+                    }
+                }
+
                 append_to_ledger(base);
             }
-            Err(e) => println!("💥 Failed: {}", e),
+            Err(e) => {
+                println!("💥 Failed to spawn ffmpeg: {}", e);
+            }
         }
     });
 }
