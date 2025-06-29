@@ -1,4 +1,4 @@
-use crate::gpu::detect_gpu_type;
+use crate::gpu::{detect_gpu_from_devices};
 use crate::ledger::{append_to_ledger, load_ledger};
 use chrono::Local;
 use rayon::prelude::*;
@@ -12,7 +12,7 @@ const TEMP_DIR: &str = "/tmp/video_convert_work";
 pub fn process_directory(watch_dir: &str) {
     let (mkv_files, srt_files) = collect_files(watch_dir);
     let ledger = load_ledger();
-    let gpu_type = detect_gpu_type();
+    let gpu_type = detect_gpu_from_devices();
 
     fs::create_dir_all(TEMP_DIR).ok();
 

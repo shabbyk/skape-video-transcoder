@@ -5,7 +5,7 @@ pub struct AppConfig {
 }
 
 pub fn load_config() -> AppConfig {
-    let watch_dir = std::env::var("WATCH_DIR").unwrap_or_else(|_| "/mnt/smb".into());
+    let watch_dir = std::env::var("WATCH_DIR").unwrap_or_else(|_| "/mnt/smb/Test-transcoding".into());
     let is_smb = std::env::var("IS_SMB")
         .unwrap_or_else(|_| "false".into())
         .to_lowercase() == "true";
